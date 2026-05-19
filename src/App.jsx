@@ -12,6 +12,9 @@ import FuncionariosList from '@/modules/Funcionarios/FuncionariosList';
 import EpisList from '@/modules/Epis/EpisList';
 import EquipamentosList from '@/modules/Equipamentos/EquipamentosList';
 import ContasPagarList from '@/modules/Financeiro/ContasPagarList';
+import ContasPagasList from '@/modules/Financeiro/ContasPagasList';
+import ContasFatList from '@/modules/Financeiro/ContasFatList';
+import FinanceiroLayout from '@/modules/Financeiro/FinanceiroLayout';
 import CustosPorObra from '@/modules/Financeiro/CustosPorObra';
 import ApontamentosPorObra from '@/modules/Obras/ApontamentosPorObra';
 import UsuariosList from '@/modules/Usuarios/UsuariosList';
@@ -52,8 +55,19 @@ function AppRoutes() {
         <Route path="funcionarios" element={<ProtectedModuleRoute modulo="funcionarios"><FuncionariosList /></ProtectedModuleRoute>} />
         <Route path="epis" element={<ProtectedModuleRoute modulo="epis"><EpisList /></ProtectedModuleRoute>} />
         <Route path="equipamentos" element={<ProtectedModuleRoute modulo="equipamentos"><EquipamentosList /></ProtectedModuleRoute>} />
-        <Route path="financeiro" element={<ProtectedModuleRoute modulo="financeiro_contas_pagar"><ContasPagarList /></ProtectedModuleRoute>} />
-        <Route path="financeiro/contas-pagar" element={<ProtectedModuleRoute modulo="financeiro_contas_pagar"><ContasPagarList /></ProtectedModuleRoute>} />
+        <Route
+          path="financeiro"
+          element={
+            <ProtectedModuleRoute modulo="financeiro_contas_pagar">
+              <FinanceiroLayout />
+            </ProtectedModuleRoute>
+          }
+        >
+          <Route index element={<Navigate to="contas-pagar" replace />} />
+          <Route path="contas-pagar" element={<ContasPagarList />} />
+          <Route path="contas-pagas" element={<ContasPagasList />} />
+          <Route path="contas-fat" element={<ContasFatList />} />
+        </Route>
         <Route path="financeiro/custos-por-obra" element={<ProtectedModuleRoute modulo="financeiro_custos_obra"><CustosPorObra /></ProtectedModuleRoute>} />
         <Route path="usuarios" element={<ProtectedModuleRoute modulo="usuarios"><UsuariosList /></ProtectedModuleRoute>} />
       </Route>

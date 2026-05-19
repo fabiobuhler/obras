@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
-import { LayoutDashboard, Users, Building2, HardHat, LogOut, Menu, X, Moon, Sun, Briefcase, Shield, Wrench, DollarSign, BarChart3, Clock } from 'lucide-react';
+import { LayoutDashboard, Users, Building2, HardHat, LogOut, Menu, X, Moon, Sun, Briefcase, Shield, Wrench, DollarSign, BarChart3, Clock, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function Layout() {
@@ -91,7 +91,9 @@ export default function Layout() {
         <nav className="flex-1 py-4 flex flex-col gap-2 px-3 overflow-y-auto">
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path;
+            const isActive = item.path === '/'
+              ? location.pathname === '/'
+              : location.pathname === item.path || (item.path === '/financeiro' && location.pathname.startsWith('/financeiro') && !location.pathname.startsWith('/financeiro/custos-por-obra'));
             return (
               <Link
                 key={item.path}
@@ -149,7 +151,10 @@ export default function Layout() {
               <Menu size={20} />
             </button>
             <h1 className="text-lg sm:text-xl font-semibold capitalize">
-              {navItems.find(item => item.path === location.pathname)?.name || 'Sistema'}
+              {navItems.find(item => {
+                if (item.path === '/') return location.pathname === '/';
+                return location.pathname === item.path || (item.path === '/financeiro' && location.pathname.startsWith('/financeiro') && !location.pathname.startsWith('/financeiro/custos-por-obra'));
+              })?.name || 'Sistema'}
             </h1>
           </div>
           <div className="flex items-center gap-4">

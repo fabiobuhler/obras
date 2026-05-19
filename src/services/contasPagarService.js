@@ -61,6 +61,70 @@ class ContasPagarService extends ApiService {
     return (data || []).map(normalizeFromDb);
   }
 
+  async getPagas(filtros = {}) {
+    let query = supabase
+      .from(this.tableName)
+      .select(`
+        *,
+        pessoas:credor_pessoa_id(id, nome),
+        empresas:credor_empresa_id(id, nome_fantasia),
+        obras:obra_id(id, objeto),
+        equipamentos:equipamento_id(id, equipamento),
+        pagamentos:pagamentos(
+          id,
+          conta_id,
+          valor_pago,
+          data_pagamento,
+          forma_pagamento,
+          observacoes,
+          comprovante_url,
+          created_at
+        )
+      `)
+      .eq('status', 'paga')
+      .order('updated_at', { ascending: false });
+
+    if (filtros.origem) {
+      query = query.eq('origem', filtros.origem);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data || []).map(normalizeFromDb);
+  }
+
+  async getFat(filtros = {}) {
+    let query = supabase
+      .from(this.tableName)
+      .select(`
+        *,
+        pessoas:credor_pessoa_id(id, nome),
+        empresas:credor_empresa_id(id, nome_fantasia),
+        obras:obra_id(id, objeto),
+        equipamentos:equipamento_id(id, equipamento),
+        pagamentos:pagamentos(
+          id,
+          conta_id,
+          valor_pago,
+          data_pagamento,
+          forma_pagamento,
+          observacoes,
+          comprovante_url,
+          created_at
+        )
+      `)
+      .eq('pagamento_direto_cliente', true)
+      .order('vencimento', { ascending: true });
+
+    if (filtros.origem) {
+      query = query.eq('origem', filtros.origem);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data || []).map(normalizeFromDb);
+  }
+
   async getById(id) {
     const data = await super.getById(id);
     return normalizeFromDb(data);

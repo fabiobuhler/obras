@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
@@ -26,9 +27,16 @@ const STATUS_CONFIG = {
 
 const fmt = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-function DashCard({ label, value, icon: Icon, colorClass }) {
+function DashCard({ label, value, icon: Icon, colorClass, onClick, active }) {
   return (
-    <div className={`rounded-xl border p-4 flex items-center gap-4 ${colorClass}`}>
+    <div
+      onClick={onClick}
+      className={`rounded-xl border p-4 flex items-center gap-4 transition-all ${
+        onClick ? 'cursor-pointer select-none hover:opacity-90' : ''
+      } ${
+        active ? 'ring-2 ring-blue-500 border-blue-400' : ''
+      } ${colorClass}`}
+    >
       <div className="p-2 rounded-lg bg-white/20 dark:bg-black/20">
         <Icon size={22} />
       </div>
@@ -177,9 +185,11 @@ function ReagendarModal({ isOpen, onClose, conta, onReagendado }) {
 
 export default function ContasPagarList() {
   const { hasPermission } = useAuth();
+  const navigate = useNavigate();
   const [contas, setContas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [cardSelecionado, setCardSelecionado] = useState(null);
   const [editing, setEditing] = useState(null);
   const [pagando, setPagando] = useState(null);
   const [reagendando, setReagendando] = useState(null);
@@ -562,13 +572,68 @@ export default function ContasPagarList() {
     return dataReferencia >= pStart && dataReferencia <= pEnd;
   };
 
+  const isContaPaga = (conta) => {
+    const status = String(conta.status || '').toLowerCase();
+    const total = Number(conta.valor_total ?? conta.valor ?? 0);
+    const pago = Number(conta.valor_pago || 0);
+
+    return status === 'paga' || (total > 0 && pago >= total);
+  };
+
+  const isContaFat = (conta) => Boolean(conta.pagamento_direto_cliente);
+
+  const contasEmAberto = useMemo(() => {
+    return (contas || []).filter((conta) => !isContaPaga(conta) && !isContaFat(conta));
+  }, [contas]);
+
+  const getHojeLocalString = () => {
+    const d = new Date();
+    const ano = d.getFullYear();
+    const mes = String(d.getMonth() + 1).padStart(2, '0');
+    const dia = String(d.getDate()).padStart(2, '0');
+    return `${ano}-${mes}-${dia}`;
+  };
+
   const contasFiltradas = useMemo(() => {
-    return contas.filter((conta) => {
-      const dentroPeriodo = contaDentroDoPeriodo(conta);
-      if (!dentroPeriodo) return false;
-      return true;
-    });
-  }, [contas, pStart, pEnd]);
+    let base = contasEmAberto;
+
+    // aplicar filtro de período ativo
+    base = base.filter((conta) => contaDentroDoPeriodo(conta));
+
+    // aplicar card selecionado
+    if (cardSelecionado) {
+      base = base.filter((conta) => {
+        const total = Number(conta.valor_total ?? conta.valor ?? 0);
+        const pago = Number(conta.valor_pago || 0);
+        const saldo = Math.max(0, total - pago);
+        const hojeStr = getHojeLocalString();
+
+        if (cardSelecionado === 'a_vencer') {
+          return saldo > 0
+            && conta.status !== 'cancelada'
+            && conta.vencimento >= hojeStr;
+        }
+
+        if (cardSelecionado === 'vencida') {
+          return saldo > 0
+            && conta.status !== 'cancelada'
+            && conta.vencimento < hojeStr;
+        }
+
+        if (cardSelecionado === 'parcial') {
+          return String(conta.status || '').toLowerCase() === 'parcial';
+        }
+
+        if (cardSelecionado === 'cancelada') {
+          return String(conta.status || '').toLowerCase() === 'cancelada';
+        }
+
+        return true;
+      });
+    }
+
+    return base;
+  }, [contasEmAberto, cardSelecionado, pStart, pEnd]);
 
   const mobileFilteredContas = useMemo(() => {
     if (!searchTermMobile) return contasFiltradas;
@@ -621,6 +686,7 @@ export default function ContasPagarList() {
 
     contas.forEach((c) => {
       if (c.status === 'cancelada') return;
+      if (isContaFat(c)) return;
 
       const total = Number(c.valor_total ?? c.valor ?? 0);
       const pagoAcumulado = Number(c.valor_pago || 0);
@@ -898,10 +964,37 @@ export default function ContasPagarList() {
 
       {/* Dashboard Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <DashCard label="A Vencer" value={fmt(totais.total_a_vencer)} icon={Clock}         colorClass="bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/50" />
-        <DashCard label="Vencido"  value={fmt(totais.total_vencido)}  icon={AlertTriangle}  colorClass="bg-red-50 text-red-800 border-red-200 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/50" />
-        <DashCard label="Pago"     value={fmt(totais.total_pago)}     icon={CheckCircle}    colorClass="bg-green-50 text-green-800 border-green-200 dark:bg-green-950/30 dark:text-green-200 dark:border-green-900/50" />
-        <DashCard label="Parcial"  value={fmt(totais.total_parcial)}  icon={TrendingUp}     colorClass="bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-950/30 dark:text-yellow-200 dark:border-yellow-900/50" />
+        <DashCard
+          label="A Vencer"
+          value={fmt(totais.total_a_vencer)}
+          icon={Clock}
+          colorClass="bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/50"
+          onClick={() => setCardSelecionado((prev) => (prev === 'a_vencer' ? null : 'a_vencer'))}
+          active={cardSelecionado === 'a_vencer'}
+        />
+        <DashCard
+          label="Vencido"
+          value={fmt(totais.total_vencido)}
+          icon={AlertTriangle}
+          colorClass="bg-red-50 text-red-800 border-red-200 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/50"
+          onClick={() => setCardSelecionado((prev) => (prev === 'vencida' ? null : 'vencida'))}
+          active={cardSelecionado === 'vencida'}
+        />
+        <DashCard
+          label="Pago"
+          value={fmt(totais.total_pago)}
+          icon={CheckCircle}
+          colorClass="bg-green-50 text-green-800 border-green-200 dark:bg-green-950/30 dark:text-green-200 dark:border-green-900/50"
+          onClick={() => navigate('/financeiro/contas-pagas')}
+        />
+        <DashCard
+          label="Parcial"
+          value={fmt(totais.total_parcial)}
+          icon={TrendingUp}
+          colorClass="bg-yellow-50 text-yellow-800 border-yellow-200 dark:bg-yellow-950/30 dark:text-yellow-200 dark:border-yellow-900/50"
+          onClick={() => setCardSelecionado((prev) => (prev === 'parcial' ? null : 'parcial'))}
+          active={cardSelecionado === 'parcial'}
+        />
       </div>
 
       {/* Tabela */}
@@ -952,7 +1045,9 @@ export default function ContasPagarList() {
             <select value={filtros.status} onChange={e => setFiltros(f => ({ ...f, status: e.target.value }))}
               className="text-sm border border-input rounded-md px-3 py-1.5 bg-background text-foreground">
               <option value="">Todos os status</option>
-              {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              {Object.entries(STATUS_CONFIG)
+                .filter(([k]) => k !== 'paga')
+                .map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
             <select value={filtros.origem} onChange={e => setFiltros(f => ({ ...f, origem: e.target.value }))}
               className="text-sm border border-input rounded-md px-3 py-1.5 bg-background text-foreground">
@@ -972,6 +1067,26 @@ export default function ContasPagarList() {
 
         <CardContent className="px-0 sm:px-6">
           <div className="space-y-3">
+            {cardSelecionado && (
+              <div className="mx-4 sm:mx-0 mb-3 flex items-center justify-between rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200 animate-in fade-in duration-200">
+                <span>
+                  Exibindo itens que compõem: <strong>{{
+                    a_vencer: 'A vencer',
+                    vencida: 'Vencidas',
+                    parcial: 'Parciais',
+                    cancelada: 'Canceladas'
+                  }[cardSelecionado] || cardSelecionado}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCardSelecionado(null)}
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
+                >
+                  <X size={14} />
+                  Limpar seleção
+                </button>
+              </div>
+            )}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-muted-foreground border-b border-border pb-2 gap-1.5 px-4 sm:px-0">
               {pStart && pEnd ? (
                 <p>
