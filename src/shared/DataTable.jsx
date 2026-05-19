@@ -69,7 +69,7 @@ export default function DataTable({ columns, data, onEdit, onDelete, onView, isL
         {filteredAndSortedData.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">Nenhum registro encontrado.</div>
         ) : (
-          <table className="w-full caption-bottom text-sm min-w-[600px]">
+          <table className="w-full caption-bottom text-sm min-w-[760px]">
             <thead className="[&_tr]:border-b bg-muted/60">
               <tr className="border-b border-border transition-colors hover:bg-muted/50">
                 {columns.map((col, idx) => (

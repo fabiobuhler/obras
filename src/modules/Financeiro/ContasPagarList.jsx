@@ -7,7 +7,8 @@ import DataTable from '@/shared/DataTable';
 import { toast } from 'sonner';
 import {
   TrendingUp, TrendingDown, CheckCircle, Clock, AlertTriangle,
-  Plus, DollarSign, CalendarClock, XCircle, FileText, Filter, X, Trash2
+  Plus, DollarSign, CalendarClock, XCircle, FileText, Filter, X, Trash2,
+  Search, Download, Printer
 } from 'lucide-react';
 import { contasPagarService } from '@/services/contasPagarService';
 import ContaForm from './ContaForm';
@@ -186,6 +187,356 @@ export default function ContasPagarList() {
   const [filtros, setFiltros] = useState({ status: '', origem: '' });
   const [showFiltros, setShowFiltros] = useState(false);
   const [isPrevisaoRhOpen, setIsPrevisaoRhOpen] = useState(false);
+  const [searchTermMobile, setSearchTermMobile] = useState('');
+
+  const formatDateBR = (dateStr) => {
+    if (!dateStr) return '—';
+    const parts = String(dateStr).split('-');
+    if (parts.length !== 3) return dateStr;
+    const [ano, mes, dia] = parts;
+    return `${dia}/${mes}/${ano}`;
+  };
+
+  const formatCurrency = (value) => {
+    return Number(value || 0).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    });
+  };
+
+  const formatNumber = (value) => {
+    return Number(value || 0).toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  };
+
+  const getCredorNome = (conta) => {
+    return (
+      conta.pessoas?.nome ||
+      conta.empresas?.nome_fantasia ||
+      conta.empresas?.razao_social ||
+      conta.credor_avulso ||
+      conta.credor_nome ||
+      '—'
+    );
+  };
+
+  const getObraNome = (conta) => {
+    return (
+      conta.obras?.objeto ||
+      conta.obras?.nome ||
+      conta.obra?.objeto ||
+      conta.obra?.nome ||
+      '—'
+    );
+  };
+
+  const statusLabel = (status) => {
+    const labels = {
+      a_vencer: 'A Vencer',
+      vencida: 'Vencida',
+      paga: 'Paga',
+      parcial: 'Parcial',
+      cancelada: 'Cancelada',
+    };
+    return labels[status] || status || '—';
+  };
+
+  const getSaldoConta = (conta) => {
+    const total = Number(conta.valor_total ?? conta.valor ?? 0);
+    const pago = Number(conta.valor_pago || 0);
+    return Math.max(0, total - pago);
+  };
+
+  const getDadosExportacao = () => {
+    return (contasFiltradas || []).map((conta) => {
+      const valorTotal = Number(conta.valor_total ?? conta.valor ?? 0);
+      const valorPago = Number(conta.valor_pago || 0);
+      const saldo = getSaldoConta(conta);
+
+      return {
+        vencimento: formatDateBR(conta.vencimento),
+        descricao: conta.descricao || '—',
+        credor: getCredorNome(conta),
+        obra: getObraNome(conta),
+        origem: conta.origem || '—',
+        valorTotal,
+        valorPago,
+        saldo,
+        status: statusLabel(conta.status),
+        observacao: conta.observacao || '',
+      };
+    });
+  };
+
+  const escapeCsv = (value) => {
+    const text = value === null || value === undefined ? '' : String(value);
+    return `"${text.replace(/"/g, '""')}"`;
+  };
+
+  const handleExportCsv = () => {
+    const dados = getDadosExportacao();
+
+    if (!dados.length) {
+      toast.error('Não há contas para exportar no filtro atual.');
+      return;
+    }
+
+    const headers = [
+      'Vencimento',
+      'Descrição',
+      'Credor',
+      'Obra',
+      'Origem',
+      'Valor Total',
+      'Valor Pago',
+      'Saldo',
+      'Status',
+      'Observação',
+    ];
+
+    const linhas = dados.map((item) => [
+      item.vencimento,
+      item.descricao,
+      item.credor,
+      item.obra,
+      item.origem,
+      formatNumber(item.valorTotal),
+      formatNumber(item.valorPago),
+      formatNumber(item.saldo),
+      item.status,
+      item.observacao,
+    ]);
+
+    const csv = [
+      headers.map(escapeCsv).join(';'),
+      ...linhas.map((linha) => linha.map(escapeCsv).join(';')),
+    ].join('\n');
+
+    const blob = new Blob(['\ufeff' + csv], {
+      type: 'text/csv;charset=utf-8;',
+    });
+
+    const periodoNome = periodoDashboard || 'filtro';
+    const dataHoje = new Date().toISOString().slice(0, 10);
+    const fileName = `contas-a-pagar-${periodoNome}-${dataHoje}.csv`;
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    toast.success('Planilha exportada com sucesso.');
+  };
+
+  const getPeriodoDescricao = () => {
+    if (pStart && pEnd) {
+      return `${formatDateBR(pStart)} a ${formatDateBR(pEnd)}`;
+    }
+    return 'Todos';
+  };
+
+  const handlePrintPdf = () => {
+    const dados = getDadosExportacao();
+
+    if (!dados.length) {
+      toast.error('Não há contas para imprimir no filtro atual.');
+      return;
+    }
+
+    const totalPrevisto = dados.reduce((acc, item) => acc + Number(item.valorTotal || 0), 0);
+    const totalPago = dados.reduce((acc, item) => acc + Number(item.valorPago || 0), 0);
+    const saldoTotal = dados.reduce((acc, item) => acc + Number(item.saldo || 0), 0);
+
+    const rowsHtml = dados.map((item) => `
+      <tr>
+        <td>${item.vencimento}</td>
+        <td>${item.descricao}</td>
+        <td>${item.credor}</td>
+        <td>${item.obra}</td>
+        <td>${item.origem}</td>
+        <td class="right">${formatCurrency(item.valorTotal)}</td>
+        <td class="right">${formatCurrency(item.valorPago)}</td>
+        <td class="right">${formatCurrency(item.saldo)}</td>
+        <td>${item.status}</td>
+      </tr>
+    `).join('');
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Contas a Pagar</title>
+          <style>
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              font-family: Arial, sans-serif;
+              color: #111827;
+              margin: 24px;
+              font-size: 12px;
+            }
+
+            h1 {
+              font-size: 20px;
+              margin: 0 0 4px 0;
+            }
+
+            .subtitle {
+              color: #4b5563;
+              margin-bottom: 16px;
+            }
+
+            .summary {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 8px;
+              margin-bottom: 16px;
+            }
+
+            .card {
+              border: 1px solid #d1d5db;
+              border-radius: 8px;
+              padding: 8px;
+            }
+
+            .label {
+              font-size: 10px;
+              color: #6b7280;
+              text-transform: uppercase;
+            }
+
+            .value {
+              font-size: 14px;
+              font-weight: bold;
+              margin-top: 4px;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+
+            th,
+            td {
+              border: 1px solid #d1d5db;
+              padding: 6px;
+              vertical-align: top;
+            }
+
+            th {
+              background: #f3f4f6;
+              text-align: left;
+              font-size: 11px;
+            }
+
+            .right {
+              text-align: right;
+              white-space: nowrap;
+            }
+
+            .footer {
+              margin-top: 16px;
+              font-size: 10px;
+              color: #6b7280;
+            }
+
+            @media print {
+              body {
+                margin: 12mm;
+              }
+
+              .no-print {
+                display: none;
+              }
+
+              table {
+                page-break-inside: auto;
+              }
+
+              tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
+              }
+
+              thead {
+                display: table-header-group;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Contas a Pagar</h1>
+          <div class="subtitle">
+            Período: ${getPeriodoDescricao()} | Total de registros: ${dados.length}
+          </div>
+
+          <div class="summary">
+            <div class="card">
+              <div class="label">Total previsto</div>
+              <div class="value">${formatCurrency(totalPrevisto)}</div>
+            </div>
+            <div class="card">
+              <div class="label">Total pago</div>
+              <div class="value">${formatCurrency(totalPago)}</div>
+            </div>
+            <div class="card">
+              <div class="label">Saldo</div>
+              <div class="value">${formatCurrency(saldoTotal)}</div>
+            </div>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Vencimento</th>
+                <th>Descrição</th>
+                <th>Credor</th>
+                <th>Obra</th>
+                <th>Origem</th>
+                <th>Valor</th>
+                <th>Pago</th>
+                <th>Saldo</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+
+          <div class="footer">
+            Relatório gerado em ${new Date().toLocaleString('pt-BR')}.
+          </div>
+
+          <script>
+            window.onload = () => {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank', 'width=1200,height=800');
+
+    if (!printWindow) {
+      toast.error('Não foi possível abrir a janela de impressão. Verifique o bloqueador de pop-ups.');
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
 
   // States de Período do Dashboard
   const [periodoDashboard, setPeriodoDashboard] = useState('mes_atual');
@@ -218,6 +569,16 @@ export default function ContasPagarList() {
       return true;
     });
   }, [contas, pStart, pEnd]);
+
+  const mobileFilteredContas = useMemo(() => {
+    if (!searchTermMobile) return contasFiltradas;
+    return contasFiltradas.filter((c) => {
+      const desc = String(c.descricao || '').toLowerCase();
+      const credor = String(getCredorNome(c)).toLowerCase();
+      const term = searchTermMobile.toLowerCase();
+      return desc.includes(term) || credor.includes(term);
+    });
+  }, [contasFiltradas, searchTermMobile]);
 
   const loadData = async () => {
     try {
@@ -552,6 +913,23 @@ export default function ContasPagarList() {
               className="flex-1 sm:flex-none flex items-center justify-center gap-1 px-3 py-1.5 text-sm border rounded-md hover:bg-muted">
               <Filter size={15} /> Filtros
             </button>
+
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm border rounded-md hover:bg-muted text-foreground bg-card"
+            >
+              <Download size={15} /> Exportar planilha
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrintPdf}
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm border rounded-md hover:bg-muted text-foreground bg-card"
+            >
+              <Printer size={15} /> Imprimir / PDF
+            </button>
+
             {hasPermission('financeiro_contas_pagar', 'criar') && (
               <button
                 onClick={() => setIsPrevisaoRhOpen(true)}
@@ -606,14 +984,101 @@ export default function ContasPagarList() {
                 Total exibido: <strong className="text-foreground">{contasFiltradas.length}</strong> de <strong className="text-foreground">{contas.length}</strong>
               </p>
             </div>
-            <div className="w-full overflow-x-auto">
-              <DataTable
-                columns={columns}
-                data={contasFiltradas}
-                isLoading={loading}
-                searchable={true}
-                searchFields={['descricao', 'origem']}
-              />
+            {/* Desktop View */}
+            <div className="hidden md:block w-full overflow-x-auto">
+              <div className="min-w-[980px]">
+                <DataTable
+                  columns={columns}
+                  data={contasFiltradas}
+                  isLoading={loading}
+                  searchable={true}
+                  searchFields={['descricao', 'origem']}
+                />
+              </div>
+            </div>
+
+            {/* Mobile View */}
+            <div className="block md:hidden space-y-4 px-4">
+              <div className="flex items-center px-3 py-2 border border-input rounded-md bg-background">
+                <Search size={18} className="text-muted-foreground mr-2" />
+                <input
+                  type="text"
+                  placeholder="Buscar descrição ou credor..."
+                  value={searchTermMobile}
+                  onChange={(e) => setSearchTermMobile(e.target.value)}
+                  className="w-full bg-transparent focus:outline-none text-sm text-foreground placeholder:text-muted-foreground"
+                />
+              </div>
+
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
+                  Carregando dados...
+                </div>
+              ) : mobileFilteredContas.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">Nenhuma conta encontrada.</div>
+              ) : (
+                <div className="space-y-3">
+                  {mobileFilteredContas.map((conta) => (
+                    <div
+                      key={conta.id}
+                      className="rounded-xl border border-border bg-card p-4 text-card-foreground shadow-sm space-y-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-foreground break-words">
+                            {conta.descricao || '—'}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Credor: {getCredorNome(conta)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Obra: {getObraNome(conta)}
+                          </p>
+                        </div>
+                        {renderStatus(conta)}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs border-t border-b border-border py-2">
+                        <div>
+                          <span className="text-muted-foreground">Vencimento</span>
+                          <p className="font-medium text-foreground">
+                            {conta.vencimento ? new Date(conta.vencimento + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Valor total</span>
+                          <p className="font-medium text-foreground">
+                            {fmt(conta.valor_total ?? conta.valor)}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Pago</span>
+                          <p className="font-medium text-green-600">
+                            {fmt(conta.valor_pago)}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Saldo</span>
+                          <p className="font-medium text-orange-600">
+                            {fmt(getSaldoConta(conta))}
+                          </p>
+                        </div>
+                      </div>
+
+                      {conta.observacao && (
+                        <div className="text-xs bg-muted/40 p-2 rounded">
+                          <span className="text-muted-foreground font-medium">Obs:</span> {conta.observacao}
+                        </div>
+                      )}
+
+                      <div className="pt-1">
+                        {renderAcoes(conta)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
