@@ -291,4 +291,26 @@ export const usuariosService = {
 
     return data;
   },
+
+  async createUsuarioComAuth(payload) {
+    const { data, error } = await supabase.functions.invoke('admin-create-user', {
+      body: {
+        nome: payload.nome,
+        email: payload.email,
+        password: payload.password,
+        perfil: payload.perfil || 'usuario',
+        ativo: payload.ativo ?? true,
+      },
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Erro ao chamar função de criação de usuário.');
+    }
+
+    if (data?.error) {
+      throw new Error(data.error);
+    }
+
+    return data?.usuario || data;
+  },
 };

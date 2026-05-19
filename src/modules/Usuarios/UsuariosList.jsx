@@ -19,6 +19,7 @@ export default function UsuariosList() {
     email: '',
     perfil: 'usuario',
     ativo: true,
+    password: '',
   });
 
   const loadData = async () => {
@@ -45,10 +46,11 @@ export default function UsuariosList() {
         email: usuario.email,
         perfil: usuario.perfil,
         ativo: usuario.ativo,
+        password: '',
       });
       setEditing(usuario);
     } else {
-      setFormData({ nome: '', email: '', perfil: 'usuario', ativo: true });
+      setFormData({ nome: '', email: '', perfil: 'usuario', ativo: true, password: '' });
       setEditing(null);
     }
     setIsFormOpen(true);
@@ -60,13 +62,24 @@ export default function UsuariosList() {
       return toast.error('Nome e email são obrigatórios.');
     }
 
+    if (!editing) {
+      if (!formData.password) {
+        return toast.error('Senha temporária é obrigatória para novos usuários.');
+      }
+      if (formData.password.length < 6) {
+        return toast.error('A senha temporária deve ter pelo menos 6 caracteres.');
+      }
+    }
+
     try {
       if (editing) {
-        await usuariosService.updateUsuario(editing.id, formData);
+        // Remove password de updateUsuario para não enviar no payload
+        const { password, ...updatePayload } = formData;
+        await usuariosService.updateUsuario(editing.id, updatePayload);
         toast.success('Usuário atualizado com sucesso.');
       } else {
-        await usuariosService.createUsuario(formData);
-        toast.success('Usuário criado. O administrador precisa criar o login deste usuário no Supabase Auth usando o mesmo email.');
+        await usuariosService.createUsuarioComAuth(formData);
+        toast.success('Usuário e login criados com sucesso.');
       }
       setIsFormOpen(false);
       loadData();
@@ -129,7 +142,7 @@ export default function UsuariosList() {
           <Shield size={16} /> Controle de Acessos
         </h3>
         <p className="text-xs text-blue-700 dark:text-blue-400 mt-1 max-w-3xl">
-          Este cadastro controla as permissões de acesso aos módulos do sistema. A criação real do login (senha) deve ser feita pelo administrador no painel do Supabase Auth. Quando o usuário fizer login com o e-mail cadastrado aqui, o sistema vinculará automaticamente o acesso.
+          Este cadastro controla os usuários do sistema e suas respectivas permissões por módulo. Ao criar um novo usuário, o sistema criará automaticamente o login correspondente no Supabase Auth com a senha temporária informada.
         </p>
       </div>
 
@@ -211,6 +224,23 @@ export default function UsuariosList() {
                 </select>
               </div>
             </div>
+
+            {!editing && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Senha temporária</label>
+                <input
+                  type="password"
+                  required
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  className="w-full border border-input rounded-md px-3 py-2 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Mínimo 6 caracteres"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Esta senha será criada no Supabase Auth. Oriente o usuário a alterá-la após o primeiro acesso.
+                </p>
+              </div>
+            )}
 
             <div className="pt-4 flex justify-end gap-2 border-t">
               <button
