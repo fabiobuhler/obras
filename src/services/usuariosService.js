@@ -313,4 +313,32 @@ export const usuariosService = {
 
     return data?.usuario || data;
   },
+
+  async updateUsuarioComAuth(id, payload) {
+    const body = {
+      usuario_id: id,
+      nome: payload.nome,
+      email: payload.email,
+      perfil: payload.perfil || 'usuario',
+      ativo: payload.ativo ?? true,
+    };
+
+    if (payload.password) {
+      body.password = payload.password;
+    }
+
+    const { data, error } = await supabase.functions.invoke('admin-create-user', {
+      body,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Erro ao chamar função de atualização de usuário.');
+    }
+
+    if (data?.error) {
+      throw new Error(data.error);
+    }
+
+    return data?.usuario || data;
+  },
 };

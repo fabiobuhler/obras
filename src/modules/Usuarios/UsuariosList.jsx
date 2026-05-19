@@ -20,6 +20,7 @@ export default function UsuariosList() {
     perfil: 'usuario',
     ativo: true,
     password: '',
+    confirmPassword: '',
   });
 
   const loadData = async () => {
@@ -47,10 +48,11 @@ export default function UsuariosList() {
         perfil: usuario.perfil,
         ativo: usuario.ativo,
         password: '',
+        confirmPassword: '',
       });
       setEditing(usuario);
     } else {
-      setFormData({ nome: '', email: '', perfil: 'usuario', ativo: true, password: '' });
+      setFormData({ nome: '', email: '', perfil: 'usuario', ativo: true, password: '', confirmPassword: '' });
       setEditing(null);
     }
     setIsFormOpen(true);
@@ -62,24 +64,44 @@ export default function UsuariosList() {
       return toast.error('Nome e email são obrigatórios.');
     }
 
-    if (!editing) {
-      if (!formData.password) {
-        return toast.error('Senha temporária é obrigatória para novos usuários.');
-      }
+    if (!editing && !formData.password) {
+      return toast.error('Informe uma senha temporária.');
+    }
+
+    if (formData.password || formData.confirmPassword) {
       if (formData.password.length < 6) {
-        return toast.error('A senha temporária deve ter pelo menos 6 caracteres.');
+        return toast.error('A senha deve ter pelo menos 6 caracteres.');
+      }
+
+      if (formData.password !== formData.confirmPassword) {
+        return toast.error('A confirmação da senha não confere.');
       }
     }
 
     try {
       if (editing) {
-        // Remove password de updateUsuario para não enviar no payload
-        const { password, ...updatePayload } = formData;
-        await usuariosService.updateUsuario(editing.id, updatePayload);
-        toast.success('Usuário atualizado com sucesso.');
+        const payload = {
+          nome: formData.nome,
+          email: formData.email,
+          perfil: formData.perfil,
+          ativo: formData.ativo,
+        };
+
+        if (formData.password) {
+          payload.password = formData.password;
+        }
+
+        await usuariosService.updateUsuarioComAuth(editing.id, payload);
+        toast.success(formData.password ? 'Usuário atualizado e senha redefinida.' : 'Usuário atualizado com sucesso.');
       } else {
-        await usuariosService.createUsuarioComAuth(formData);
-        toast.success('Usuário e login criados com sucesso.');
+        await usuariosService.createUsuarioComAuth({
+          nome: formData.nome,
+          email: formData.email,
+          perfil: formData.perfil,
+          ativo: formData.ativo,
+          password: formData.password,
+        });
+        toast.success('Usuário criado com acesso Auth.');
       }
       setIsFormOpen(false);
       loadData();
@@ -225,20 +247,63 @@ export default function UsuariosList() {
               </div>
             </div>
 
-            {!editing && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Senha temporária</label>
-                <input
-                  type="password"
-                  required
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full border border-input rounded-md px-3 py-2 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                  placeholder="Mínimo 6 caracteres"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Esta senha será criada no Supabase Auth. Oriente o usuário a alterá-la após o primeiro acesso.
-                </p>
+            {!editing ? (
+              <div className="space-y-4 pt-2 border-t">
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
+                  Esta senha temporária será criada no Supabase Auth. Oriente o usuário a alterá-la após o primeiro acesso.
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Senha temporária *</label>
+                    <input
+                      type="password"
+                      required
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      className="w-full border border-input rounded-md px-3 py-2 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="Mínimo 6 caracteres"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Confirmar senha temporária *</label>
+                    <input
+                      type="password"
+                      required
+                      value={formData.confirmPassword}
+                      onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                      className="w-full border border-input rounded-md px-3 py-2 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="Confirme a senha"
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 pt-2 border-t">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                  A senha atual não pode ser visualizada. Preencha os campos abaixo somente se desejar redefinir uma nova senha temporária.
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Nova senha temporária</label>
+                    <input
+                      type="password"
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      className="w-full border border-input rounded-md px-3 py-2 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="Mínimo 6 caracteres"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Confirmar nova senha</label>
+                    <input
+                      type="password"
+                      value={formData.confirmPassword}
+                      onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                      className="w-full border border-input rounded-md px-3 py-2 bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="Confirme a nova senha"
+                    />
+                  </div>
+                </div>
               </div>
             )}
 

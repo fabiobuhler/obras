@@ -76,16 +76,19 @@ serve(async (req) => {
 
     if (!callerAppUser || callerAppUser.perfil !== 'admin' || callerAppUser.ativo === false) {
       return new Response(
-        JSON.stringify({ error: 'Apenas administradores podem criar usuários.' }),
+        JSON.stringify({ error: 'Apenas administradores podem criar ou atualizar usuários.' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const body = await req.json();
 
+    const usuarioId = body.usuario_id || body.usuarioId || null;
+    const isEdit = Boolean(usuarioId);
+
     const nome = String(body.nome || '').trim();
     const email = String(body.email || '').trim().toLowerCase();
-    const password = String(body.password || '').trim();
+    const password = body.password ? String(body.password).trim() : '';
     const perfil = body.perfil || 'usuario';
     const ativo = body.ativo ?? true;
 
@@ -103,120 +106,169 @@ serve(async (req) => {
       );
     }
 
-    if (!password || password.length < 6) {
+    if (!isEdit && (!password || password.length < 6)) {
       return new Response(
         JSON.stringify({ error: 'Informe uma senha temporária com pelo menos 6 caracteres.' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    let authUserId: string | null = null;
-
-    // Tenta localizar usuário interno existente por e-mail.
-    const { data: usuarioExistente, error: usuarioExistenteError } = await supabaseAdmin
-      .from('usuarios')
-      .select('id, auth_user_id, email')
-      .eq('email', email)
-      .maybeSingle();
-
-    if (usuarioExistenteError) {
-      throw usuarioExistenteError;
+    if (isEdit && password && password.length < 6) {
+      return new Response(
+        JSON.stringify({ error: 'A nova senha deve ter pelo menos 6 caracteres.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    if (usuarioExistente?.auth_user_id) {
-      authUserId = usuarioExistente.auth_user_id;
+    let usuarioExistente = null;
+
+    if (usuarioId) {
+      const { data, error } = await supabaseAdmin
+        .from('usuarios')
+        .select('id, auth_user_id, email')
+        .eq('id', usuarioId)
+        .maybeSingle();
+
+      if (error) throw error;
+      usuarioExistente = data;
+    }
+
+    if (!usuarioExistente) {
+      const { data, error } = await supabaseAdmin
+        .from('usuarios')
+        .select('id, auth_user_id, email')
+        .eq('email', email)
+        .maybeSingle();
+
+      if (error) throw error;
+      usuarioExistente = data;
+    }
+
+    let authUserId: string | null = usuarioExistente?.auth_user_id || null;
+
+    if (authUserId) {
+      const updateAuthPayload: Record<string, any> = {
+        email,
+        email_confirm: true,
+        user_metadata: {
+          name: nome,
+        },
+      };
+
+      if (password) {
+        updateAuthPayload.password = password;
+      }
 
       const { error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(
         authUserId,
-        {
-          email,
-          password,
-          email_confirm: true,
-          user_metadata: {
-            name: nome,
-          },
-        }
+        updateAuthPayload
       );
 
       if (updateAuthError) {
         throw updateAuthError;
       }
     } else {
-      const { data: createdAuth, error: createAuthError } =
-        await supabaseAdmin.auth.admin.createUser({
-          email,
-          password,
-          email_confirm: true,
-          user_metadata: {
-            name: nome,
-          },
-        });
-
-      if (createAuthError) {
-        // Caso o Auth já exista mas não esteja vinculado, tentar localizar pela listagem.
-        if (!String(createAuthError.message || '').toLowerCase().includes('already')) {
-          throw createAuthError;
-        }
-
-        const { data: listData, error: listError } =
-          await supabaseAdmin.auth.admin.listUsers();
-
-        if (listError) {
-          throw listError;
-        }
-
-        const found = listData.users.find((u) => u.email?.toLowerCase() === email);
-
-        if (!found) {
-          throw createAuthError;
-        }
-
-        authUserId = found.id;
-
-        const { error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(
-          authUserId,
-          {
-            password,
+      if (password || !isEdit) {
+        const { data: createdAuth, error: createAuthError } =
+          await supabaseAdmin.auth.admin.createUser({
+            email,
+            password: password || undefined,
             email_confirm: true,
             user_metadata: {
               name: nome,
             },
-          }
-        );
+          });
 
-        if (updateAuthError) {
-          throw updateAuthError;
+        if (createAuthError) {
+          if (!String(createAuthError.message || '').toLowerCase().includes('already')) {
+            throw createAuthError;
+          }
+
+          const { data: listData, error: listError } =
+            await supabaseAdmin.auth.admin.listUsers();
+
+          if (listError) {
+            throw listError;
+          }
+
+          const found = listData.users.find((u) => u.email?.toLowerCase() === email);
+
+          if (!found) {
+            throw createAuthError;
+          }
+
+          authUserId = found.id;
+
+          const updateAuthPayload: Record<string, any> = {
+            email_confirm: true,
+            user_metadata: {
+              name: nome,
+            },
+          };
+
+          if (password) {
+            updateAuthPayload.password = password;
+          }
+
+          const { error: updateAuthError } = await supabaseAdmin.auth.admin.updateUserById(
+            authUserId,
+            updateAuthPayload
+          );
+
+          if (updateAuthError) {
+            throw updateAuthError;
+          }
+        } else {
+          authUserId = createdAuth.user?.id || null;
         }
-      } else {
-        authUserId = createdAuth.user?.id || null;
       }
     }
 
-    if (!authUserId) {
-      return new Response(
-        JSON.stringify({ error: 'Não foi possível obter o ID do usuário Auth.' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    let usuario = null;
 
-    const upsertPayload = {
-      auth_user_id: authUserId,
-      nome,
-      email,
-      perfil,
-      ativo,
-    };
+    if (usuarioId) {
+      const updatePayload: Record<string, any> = {
+        nome,
+        email,
+        perfil,
+        ativo,
+      };
 
-    const { data: usuario, error: upsertUsuarioError } = await supabaseAdmin
-      .from('usuarios')
-      .upsert(upsertPayload, {
-        onConflict: 'email',
-      })
-      .select('*')
-      .single();
+      if (authUserId) {
+        updatePayload.auth_user_id = authUserId;
+      }
 
-    if (upsertUsuarioError) {
-      throw upsertUsuarioError;
+      const { data, error } = await supabaseAdmin
+        .from('usuarios')
+        .update(updatePayload)
+        .eq('id', usuarioId)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      usuario = data;
+    } else {
+      const upsertPayload: Record<string, any> = {
+        nome,
+        email,
+        perfil,
+        ativo,
+      };
+
+      if (authUserId) {
+        upsertPayload.auth_user_id = authUserId;
+      }
+
+      const { data, error } = await supabaseAdmin
+        .from('usuarios')
+        .upsert(upsertPayload, {
+          onConflict: 'email',
+        })
+        .select('*')
+        .single();
+
+      if (error) throw error;
+      usuario = data;
     }
 
     return new Response(
@@ -224,6 +276,7 @@ serve(async (req) => {
         ok: true,
         usuario,
         auth_user_id: authUserId,
+        senha_atualizada: Boolean(password),
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -232,7 +285,7 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        error: error?.message || 'Erro ao criar usuário.',
+        error: error?.message || 'Erro ao processar usuário.',
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
