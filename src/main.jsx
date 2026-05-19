@@ -7,8 +7,9 @@ const params = new URLSearchParams(window.location.search);
 const redirect = params.get('redirect');
 
 if (redirect) {
-  const base = (import.meta.env.BASE_URL || '/obras/').replace(/\/$/, '');
-  window.history.replaceState(null, '', base + '/' + redirect.replace(/^\/+/, ''));
+  const cleanRedirect = redirect.replace(/^\/+/, '');
+  const base = import.meta.env.BASE_URL || '/';
+  window.history.replaceState(null, '', `${base}${cleanRedirect}`);
 }
 createRoot(document.getElementById('root')).render(
   <StrictMode>

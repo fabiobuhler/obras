@@ -4,11 +4,10 @@
     <meta charset="utf-8">
     <title>Gestão Obras</title>
     <script>
-      const path = window.location.pathname;
       const repo = '/obras';
+      const path = window.location.pathname;
       const relativePath = path.startsWith(repo) ? path.slice(repo.length) : path;
-      const target = repo + '/?redirect=' + encodeURIComponent(relativePath + window.location.search + window.location.hash);
-      window.location.replace(target);
+      window.location.replace(repo + '/?redirect=' + encodeURIComponent(relativePath + window.location.search + window.location.hash));
     </script>
   </head>
   <body>

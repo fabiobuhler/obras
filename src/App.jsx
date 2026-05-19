@@ -61,10 +61,12 @@ function AppRoutes() {
   );
 }
 
+const basename = import.meta.env.PROD ? '/obras' : '/';
+
 export default function App() {
   // O basename deve refletir o "base" configurado no vite.config.js para o Github Pages
   return (
-    <Router basename={import.meta.env.BASE_URL}>
+    <Router basename={basename}>
       <AuthProvider>
         <AppRoutes />
         <Toaster richColors position="top-right" />
