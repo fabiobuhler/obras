@@ -46,7 +46,12 @@ export const dashboardService = {
     ] = await Promise.all([
       supabase.from('obras').select('*'),
       supabase.from('funcionarios').select('*'),
-      supabase.from('contas_pagar').select('*'),
+      supabase.from('contas_pagar').select(`
+        *,
+        pessoas:credor_pessoa_id (id, nome),
+        empresas:credor_empresa_id (id, nome_fantasia, razao_social),
+        obras:obra_id (id, objeto)
+      `),
     ]);
 
     if (obrasResult.error) throw obrasResult.error;
@@ -54,48 +59,86 @@ export const dashboardService = {
     if (contasResult.error) throw contasResult.error;
 
     const obras = obrasResult.data || [];
-    const funcionarios = funcionariosResult.data || [];
+    const funcionariosRaw = funcionariosResult.data || [];
     const contas = contasResult.data || [];
 
-    const obrasAtivas = obras.filter((obra) => {
+    const pessoaIds = [...new Set(funcionariosRaw.map((f) => f.pessoa_id ? String(f.pessoa_id) : null).filter(Boolean))];
+    let pessoas = [];
+
+    if (pessoaIds.length > 0) {
+      const pessoasResult = await supabase
+        .from('pessoas')
+        .select('id, nome')
+        .in('id', pessoaIds);
+
+      if (pessoasResult.error) {
+        console.error('ERRO AO BUSCAR PESSOAS DO DASHBOARD:', pessoasResult.error);
+      } else {
+        pessoas = pessoasResult.data || [];
+      }
+    }
+
+    const pessoasMap = new Map(pessoas.map((p) => [String(p.id), p]));
+
+    const funcionarios = funcionariosRaw.map((funcionario) => {
+      const pId = funcionario.pessoa_id ? String(funcionario.pessoa_id) : null;
+      const pessoa = pId ? pessoasMap.get(pId) : null;
+
+      // Se a pessoa não foi encontrada na etapa 2, tenta aproveitar se por acaso veio em um join prévio
+      const pessoaFallback = pessoa || funcionario.pessoas || funcionario.pessoa;
+
+      return {
+        ...funcionario,
+        pessoa: pessoaFallback,
+        nome_exibicao:
+          pessoaFallback?.nome ||
+          funcionario.nome ||
+          funcionario.nome_completo ||
+          funcionario.apelido ||
+          funcionario.email ||
+          '-',
+      };
+    });
+
+    const obrasAtivasLista = obras.filter((obra) => {
       const status = String(obra.status || obra.situacao || '').toLowerCase();
 
       if (!status) return true;
 
       return !['concluida', 'concluída', 'cancelada', 'inativa', 'finalizada'].includes(status);
-    }).length;
+    });
 
-    const funcionariosAtivos = funcionarios.filter((funcionario) => {
+    const funcionariosAtivosLista = funcionarios.filter((funcionario) => {
+      if (funcionario.ativo !== undefined && funcionario.ativo !== null) {
+        return Boolean(funcionario.ativo);
+      }
       const status = String(funcionario.status || funcionario.situacao || funcionario.situacao_acesso || '').toLowerCase();
 
       if (!status) return true;
 
       return !['inativo', 'desligado', 'demitido', 'cancelado'].includes(status);
-    }).length;
+    });
 
-    const contasEmAberto = contas.filter((conta) => {
+    const contasEmAbertoLista = contas.filter((conta) => {
       if (isPaga(conta)) return false;
       if (isCancelada(conta)) return false;
       if (isFat(conta)) return false;
       return getSaldo(conta) > 0;
     });
 
-    const saldoEmAberto = contasEmAberto.reduce((acc, conta) => acc + getSaldo(conta), 0);
+    const contasVencidasLista = contasEmAbertoLista.filter(isVencida);
 
-    const contasVencidas = contasEmAberto.filter(isVencida);
-
-    const saldoVencido = contasVencidas.reduce((acc, conta) => acc + getSaldo(conta), 0);
-
-    const contasMes = contas.filter((conta) => {
+    const contasMesLista = contas.filter((conta) => {
       if (!conta.vencimento) return false;
       if (isCancelada(conta)) return false;
 
       return conta.vencimento.slice(0, 7) === mesAtual;
     });
 
-    const custoMes = contasMes.reduce((acc, conta) => acc + getValorTotal(conta), 0);
-
-    const pagosMes = contasMes.reduce((acc, conta) => acc + getValorPago(conta), 0);
+    const saldoEmAberto = contasEmAbertoLista.reduce((acc, conta) => acc + getSaldo(conta), 0);
+    const saldoVencido = contasVencidasLista.reduce((acc, conta) => acc + getSaldo(conta), 0);
+    const custoMes = contasMesLista.reduce((acc, conta) => acc + getValorTotal(conta), 0);
+    const pagosMes = contasMesLista.reduce((acc, conta) => acc + getValorPago(conta), 0);
 
     const custosMensaisMap = new Map();
 
@@ -113,16 +156,23 @@ export const dashboardService = {
       .map(([mes, valor]) => ({ mes, valor }));
 
     return {
-      obrasAtivas,
-      funcionariosAtivos,
+      obrasAtivas: obrasAtivasLista.length,
+      funcionariosAtivos: funcionariosAtivosLista.length,
       saldoEmAberto,
-      qtdContasEmAberto: contasEmAberto.length,
+      qtdContasEmAberto: contasEmAbertoLista.length,
       saldoVencido,
-      qtdVencidas: contasVencidas.length,
+      qtdVencidas: contasVencidasLista.length,
       custoMes,
       pagosMes,
       custosMensais,
       evolucaoFisicoFinanceira: [],
+      detalhes: {
+        obrasAtivasLista,
+        funcionariosAtivosLista,
+        contasMesLista,
+        contasEmAbertoLista,
+        contasVencidasLista,
+      },
     };
   },
 };
