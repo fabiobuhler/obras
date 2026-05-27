@@ -4,6 +4,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { LayoutDashboard, Users, Building2, HardHat, LogOut, Menu, X, Moon, Sun, Briefcase, Shield, Wrench, DollarSign, BarChart3, Clock, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+const appVersion = import.meta.env.VITE_APP_VERSION || '1.0.2026.local';
+
 export default function Layout() {
   const { user, logout, hasPermission, isAdmin, permissoesLoading, usuarioSistema } = useAuth();
   const navigate = useNavigate();
@@ -64,7 +66,7 @@ export default function Layout() {
   });
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex relative overflow-hidden">
+    <div className="min-h-dvh bg-background text-foreground">
       {/* Overlay mobile */}
       {sidebarOpen && (
         <div
@@ -76,9 +78,9 @@ export default function Layout() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "bg-card border-r border-border transition-all duration-300 flex flex-col shrink-0",
-          "fixed inset-y-0 left-0 z-50 w-72 transform lg:static lg:translate-x-0 lg:w-64 lg:flex",
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          "fixed inset-y-0 left-0 z-50 flex h-dvh w-72 flex-col border-r border-border bg-card text-card-foreground transition-transform duration-300 ease-in-out lg:w-64",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full",
+          "lg:translate-x-0"
         )}
       >
         <div className="h-16 flex items-center justify-between px-4 border-b border-border">
@@ -88,7 +90,7 @@ export default function Layout() {
           </button>
         </div>
 
-        <nav className="flex-1 py-4 flex flex-col gap-2 px-3 overflow-y-auto">
+        <nav className="min-h-0 flex-1 py-4 flex flex-col gap-2 px-3 overflow-y-auto">
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = item.path === '/'
@@ -115,32 +117,40 @@ export default function Layout() {
           })}
         </nav>
 
-        <div className="p-4 border-t border-border flex flex-col gap-2">
-          {user && !usuarioSistema && !permissoesLoading && (
-            <p className="px-3 py-2 text-xs text-amber-600 dark:text-amber-300 leading-tight">
-              Permissões não carregadas. Verifique o vínculo do usuário.
+        <div className="shrink-0 border-t border-border bg-card">
+          <div className="p-4 flex flex-col gap-2">
+            {user && !usuarioSistema && !permissoesLoading && (
+              <p className="px-3 py-2 text-xs text-amber-600 dark:text-amber-300 leading-tight">
+                Permissões não carregadas. Verifique o vínculo do usuário.
+              </p>
+            )}
+            <button
+              onClick={toggleTheme}
+              className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted text-muted-foreground transition-colors"
+            >
+              {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+              <span>Tema {theme === 'light' ? 'Escuro' : 'Claro'}</span>
+            </button>
+            
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-destructive/10 text-destructive transition-colors"
+            >
+              <LogOut size={20} />
+              <span>Sair</span>
+            </button>
+          </div>
+          <div className="border-t border-border px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+            <p>
+              Desenvolvido por <span className="font-medium text-foreground">Fábio Bühler</span>
             </p>
-          )}
-          <button
-            onClick={toggleTheme}
-            className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted text-muted-foreground transition-colors"
-          >
-            {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
-            <span>Tema {theme === 'light' ? 'Escuro' : 'Claro'}</span>
-          </button>
-          
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-destructive/10 text-destructive transition-colors"
-          >
-            <LogOut size={20} />
-            <span>Sair</span>
-          </button>
+            <p>Versão {appVersion}</p>
+          </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+      <main className="min-h-dvh min-w-0 flex flex-col lg:pl-64">
         <header className="h-16 border-b border-border bg-card flex items-center px-4 sm:px-6 justify-between shrink-0">
           <div className="flex items-center gap-3">
             <button
