@@ -55,6 +55,69 @@ const formatDateLocal = (date) => {
   return `${ano}-${mes}-${dia}`;
 };
 
+const getHojeLocalString = () => {
+  return formatDateLocal(new Date());
+};
+
+const getValorTotalConta = (conta) => Number(conta.valor_total ?? conta.valor ?? 0);
+const getValorPagoConta = (conta) => Number(conta.valor_pago || 0);
+const getSaldoConta = (conta) => Math.max(0, getValorTotalConta(conta) - getValorPagoConta(conta));
+
+const isContaPaga = (conta) => {
+  const status = String(conta.status || '').toLowerCase();
+  const total = getValorTotalConta(conta);
+  const pago = getValorPagoConta(conta);
+  return status === 'paga' || (total > 0 && pago >= total);
+};
+
+const isContaCancelada = (conta) => String(conta.status || '').toLowerCase() === 'cancelada';
+
+const isContaVencida = (conta) => {
+  const hoje = getHojeLocalString();
+  if (!conta.vencimento) return false;
+  if (isContaPaga(conta) || isContaCancelada(conta) || getSaldoConta(conta) <= 0) return false;
+  return conta.vencimento < hoje;
+};
+
+const getStatusCalculadoConta = (conta) => {
+  const status = String(conta.status || '').toLowerCase();
+  if (isContaCancelada(conta)) return 'cancelada';
+  if (isContaPaga(conta)) return 'paga';
+  if (isContaVencida(conta)) return 'vencida';
+  if (status === 'parcial' || getValorPagoConta(conta) > 0) return 'parcial';
+  return 'a_vencer';
+};
+
+const statusLabel = (status) => {
+  const labels = {
+    a_vencer: 'A Vencer',
+    vencida: 'Vencida',
+    paga: 'Paga',
+    parcial: 'Parcial',
+    cancelada: 'Cancelada',
+  };
+  return labels[status] || status || '—';
+};
+
+const getStatusLabelConta = (conta) => {
+  if (String(conta.status || '').toLowerCase() === 'parcial' && isContaVencida(conta)) {
+    return 'Parcial vencida';
+  }
+  return statusLabel(getStatusCalculadoConta(conta));
+};
+
+const isContaFat = (conta) => Boolean(conta.pagamento_direto_cliente);
+
+const ordenarPorPrioridadePagamento = (a, b) => {
+  const aVencida = isContaVencida(a);
+  const bVencida = isContaVencida(b);
+  if (aVencida && !bVencida) return -1;
+  if (!aVencida && bVencida) return 1;
+  const aVencimento = a.vencimento || '9999-12-31';
+  const bVencimento = b.vencimento || '9999-12-31';
+  return aVencimento.localeCompare(bVencimento);
+};
+
 const getPeriodoRange = (tipo) => {
   const hoje = new Date();
   const inicio = new Date(hoje);
@@ -242,27 +305,12 @@ export default function ContasPagarList() {
     );
   };
 
-  const statusLabel = (status) => {
-    const labels = {
-      a_vencer: 'A Vencer',
-      vencida: 'Vencida',
-      paga: 'Paga',
-      parcial: 'Parcial',
-      cancelada: 'Cancelada',
-    };
-    return labels[status] || status || '—';
-  };
 
-  const getSaldoConta = (conta) => {
-    const total = Number(conta.valor_total ?? conta.valor ?? 0);
-    const pago = Number(conta.valor_pago || 0);
-    return Math.max(0, total - pago);
-  };
 
   const getDadosExportacao = () => {
     return (contasFiltradas || []).map((conta) => {
-      const valorTotal = Number(conta.valor_total ?? conta.valor ?? 0);
-      const valorPago = Number(conta.valor_pago || 0);
+      const valorTotal = getValorTotalConta(conta);
+      const valorPago = getValorPagoConta(conta);
       const saldo = getSaldoConta(conta);
 
       return {
@@ -274,7 +322,7 @@ export default function ContasPagarList() {
         valorTotal,
         valorPago,
         saldo,
-        status: statusLabel(conta.status),
+        status: getStatusLabelConta(conta),
         observacao: conta.observacao || '',
       };
     });
@@ -566,74 +614,52 @@ export default function ContasPagarList() {
   };
 
   const contaDentroDoPeriodo = (conta) => {
+    if (isContaVencida(conta)) return true;
     if (!pStart || !pEnd) return true;
     const dataReferencia = conta.vencimento;
     if (!dataReferencia) return false;
     return dataReferencia >= pStart && dataReferencia <= pEnd;
   };
 
-  const isContaPaga = (conta) => {
-    const status = String(conta.status || '').toLowerCase();
-    const total = Number(conta.valor_total ?? conta.valor ?? 0);
-    const pago = Number(conta.valor_pago || 0);
-
-    return status === 'paga' || (total > 0 && pago >= total);
-  };
-
-  const isContaFat = (conta) => Boolean(conta.pagamento_direto_cliente);
-
-  const contasEmAberto = useMemo(() => {
-    return (contas || []).filter((conta) => !isContaPaga(conta) && !isContaFat(conta));
+  const contasBaseAPagar = useMemo(() => {
+    return (contas || []).filter((conta) => {
+      if (isContaPaga(conta)) return false;
+      if (isContaFat(conta)) return false;
+      return true;
+    });
   }, [contas]);
 
-  const getHojeLocalString = () => {
-    const d = new Date();
-    const ano = d.getFullYear();
-    const mes = String(d.getMonth() + 1).padStart(2, '0');
-    const dia = String(d.getDate()).padStart(2, '0');
-    return `${ano}-${mes}-${dia}`;
-  };
-
   const contasFiltradas = useMemo(() => {
-    let base = contasEmAberto;
+    let base = contasBaseAPagar;
 
-    // aplicar filtro de período ativo
     base = base.filter((conta) => contaDentroDoPeriodo(conta));
 
-    // aplicar card selecionado
     if (cardSelecionado) {
       base = base.filter((conta) => {
-        const total = Number(conta.valor_total ?? conta.valor ?? 0);
-        const pago = Number(conta.valor_pago || 0);
-        const saldo = Math.max(0, total - pago);
-        const hojeStr = getHojeLocalString();
+        const statusCalc = getStatusCalculadoConta(conta);
 
         if (cardSelecionado === 'a_vencer') {
-          return saldo > 0
-            && conta.status !== 'cancelada'
-            && conta.vencimento >= hojeStr;
+          return statusCalc === 'a_vencer';
         }
 
         if (cardSelecionado === 'vencida') {
-          return saldo > 0
-            && conta.status !== 'cancelada'
-            && conta.vencimento < hojeStr;
+          return statusCalc === 'vencida';
         }
 
         if (cardSelecionado === 'parcial') {
-          return String(conta.status || '').toLowerCase() === 'parcial';
+          return statusCalc === 'parcial';
         }
 
         if (cardSelecionado === 'cancelada') {
-          return String(conta.status || '').toLowerCase() === 'cancelada';
+          return statusCalc === 'cancelada';
         }
 
         return true;
       });
     }
 
-    return base;
-  }, [contasEmAberto, cardSelecionado, pStart, pEnd]);
+    return base.sort(ordenarPorPrioridadePagamento);
+  }, [contasBaseAPagar, cardSelecionado, pStart, pEnd]);
 
   const mobileFilteredContas = useMemo(() => {
     if (!searchTermMobile) return contasFiltradas;
@@ -644,6 +670,10 @@ export default function ContasPagarList() {
       return desc.includes(term) || credor.includes(term);
     });
   }, [contasFiltradas, searchTermMobile]);
+
+  const vencidasPrioritarias = useMemo(() => {
+    return contasFiltradas.filter((conta) => isContaVencida(conta));
+  }, [contasFiltradas]);
 
   const loadData = async () => {
     try {
@@ -668,12 +698,6 @@ export default function ContasPagarList() {
 
   // Dashboard totalizadores filtrados por período
   const totais = useMemo(() => {
-    const d = new Date();
-    const ano = d.getFullYear();
-    const mes = String(d.getMonth() + 1).padStart(2, '0');
-    const dia = String(d.getDate()).padStart(2, '0');
-    const hojeStr = `${ano}-${mes}-${dia}`;
-
     let total_a_vencer = 0;
     let total_vencido = 0;
     let total_pago = 0;
@@ -685,12 +709,11 @@ export default function ContasPagarList() {
     };
 
     contas.forEach((c) => {
-      if (c.status === 'cancelada') return;
+      if (isContaCancelada(c)) return;
       if (isContaFat(c)) return;
 
-      const total = Number(c.valor_total ?? c.valor ?? 0);
-      const pagoAcumulado = Number(c.valor_pago || 0);
-      const saldo = Math.max(0, total - pagoAcumulado);
+      const saldo = getSaldoConta(c);
+      const pagoAcumulado = getValorPagoConta(c);
 
       // Pagamentos realizados no período
       if (Array.isArray(c.pagamentos) && c.pagamentos.length > 0) {
@@ -704,20 +727,18 @@ export default function ContasPagarList() {
       }
 
       // Se não existe saldo em aberto, não entra em A Vencer, Vencido ou Parcial
-      if (saldo <= 0 || c.status === 'paga') return;
+      if (saldo <= 0 || isContaPaga(c)) return;
 
-      // Valores em aberto são filtrados pelo vencimento da conta
-      if (!dentroPeriodo(c.vencimento)) return;
+      // Valores em aberto são filtrados pelo vencimento da conta (vencidas são prioridade, sempre entram)
+      const inPeriod = isContaVencida(c) || dentroPeriodo(c.vencimento);
+      if (!inPeriod) return;
 
-      // Parcial mostra o saldo restante de contas parcialmente pagas
-      if (c.status === 'parcial' || pagoAcumulado > 0) {
-        total_parcial += saldo;
-      }
-
-      // A vencer e vencido sempre devem considerar saldo, não valor total
-      if (c.vencimento && c.vencimento < hojeStr) {
+      const statusCalc = getStatusCalculadoConta(c);
+      if (statusCalc === 'vencida') {
         total_vencido += saldo;
-      } else {
+      } else if (statusCalc === 'parcial') {
+        total_parcial += saldo;
+      } else if (statusCalc === 'a_vencer') {
         total_a_vencer += saldo;
       }
     });
@@ -807,10 +828,12 @@ export default function ContasPagarList() {
   };
 
   const renderStatus = (row) => {
-    const cfg = STATUS_CONFIG[row.status] || STATUS_CONFIG.a_vencer;
+    const statusCalc = getStatusCalculadoConta(row);
+    const cfg = STATUS_CONFIG[statusCalc] || STATUS_CONFIG.a_vencer;
+    const label = getStatusLabelConta(row);
     return (
       <span className={`px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap inline-block text-center min-w-[90px] ${cfg.color}`}>
-        {cfg.label}
+        {label}
       </span>
     );
   };
@@ -843,49 +866,52 @@ export default function ContasPagarList() {
     );
   };
 
-  const renderAcoes = (row) => (
-    <div className="flex flex-col sm:flex-row flex-wrap gap-1.5 items-stretch sm:items-center">
-      {hasPermission('financeiro_contas_pagar', 'editar') && ['a_vencer', 'parcial', 'vencida'].includes(row.status) && (
-        <button onClick={() => setPagando(row)} title="Registrar Pagamento"
-          className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 font-medium transition-colors">
-          <DollarSign size={12} /> Pagar
-        </button>
-      )}
-      {hasPermission('financeiro_contas_pagar', 'editar') && row.status !== 'cancelada' && row.status !== 'paga' && (
-        <button onClick={() => setReagendando(row)} title="Reagendar"
-          className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 font-medium transition-colors">
-          <CalendarClock size={12} /> Reagendar
-        </button>
-      )}
-      {hasPermission('financeiro_contas_pagar', 'editar') && row.status !== 'cancelada' && row.status !== 'paga' && (
-        <button onClick={() => setCancelando(row)} title="Cancelar"
-          className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 font-medium transition-colors">
-          <XCircle size={12} /> Cancelar
-        </button>
-      )}
-      {hasPermission('financeiro_contas_pagar', 'excluir') && row.status === 'cancelada' && (
-        <button onClick={() => handleDeletePermanente(row)} title="Excluir Definitivamente"
-          className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-red-700 text-white rounded hover:bg-red-800 dark:bg-red-600 dark:hover:bg-red-700 font-medium transition-colors">
-          <Trash2 size={12} /> Excluir
-        </button>
-      )}
-      {row.arquivo_url && (
-        <a href={row.arquivo_url} target="_blank" rel="noreferrer" title="Abrir Arquivo"
-          className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 font-medium transition-colors">
-          <FileText size={12} /> Boleto
-        </a>
-      )}
-      {hasPermission('financeiro_contas_pagar', 'editar') && (
-        <button onClick={() => { setEditing(row); setIsFormOpen(true); }} title="Editar Conta"
-          className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-zinc-600 hover:bg-zinc-700 text-white rounded font-medium transition-colors">
-          Editar
-        </button>
-      )}
-    </div>
-  );
+  const renderAcoes = (row) => {
+    const statusCalc = getStatusCalculadoConta(row);
+    return (
+      <div className="flex flex-col sm:flex-row flex-wrap gap-1.5 items-stretch sm:items-center">
+        {hasPermission('financeiro_contas_pagar', 'editar') && ['a_vencer', 'parcial', 'vencida'].includes(statusCalc) && (
+          <button onClick={() => setPagando(row)} title="Registrar Pagamento"
+            className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 font-medium transition-colors">
+            <DollarSign size={12} /> Pagar
+          </button>
+        )}
+        {hasPermission('financeiro_contas_pagar', 'editar') && row.status !== 'cancelada' && row.status !== 'paga' && (
+          <button onClick={() => setReagendando(row)} title="Reagendar"
+            className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 font-medium transition-colors">
+            <CalendarClock size={12} /> Reagendar
+          </button>
+        )}
+        {hasPermission('financeiro_contas_pagar', 'editar') && row.status !== 'cancelada' && row.status !== 'paga' && (
+          <button onClick={() => setCancelando(row)} title="Cancelar"
+            className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 font-medium transition-colors">
+            <XCircle size={12} /> Cancelar
+          </button>
+        )}
+        {hasPermission('financeiro_contas_pagar', 'excluir') && row.status === 'cancelada' && (
+          <button onClick={() => handleDeletePermanente(row)} title="Excluir Definitivamente"
+            className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-red-700 text-white rounded hover:bg-red-800 dark:bg-red-600 dark:hover:bg-red-700 font-medium transition-colors">
+            <Trash2 size={12} /> Excluir
+          </button>
+        )}
+        {row.arquivo_url && (
+          <a href={row.arquivo_url} target="_blank" rel="noreferrer" title="Abrir Arquivo"
+            className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 font-medium transition-colors">
+            <FileText size={12} /> Boleto
+          </a>
+        )}
+        {hasPermission('financeiro_contas_pagar', 'editar') && (
+          <button onClick={() => { setEditing(row); setIsFormOpen(true); }} title="Editar Conta"
+            className="flex items-center justify-center gap-1 px-2.5 py-1 text-xs bg-zinc-600 hover:bg-zinc-700 text-white rounded font-medium transition-colors">
+            Editar
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const columns = [
-    { header: 'Vencimento', accessor: 'vencimento', render: (row) => <span className={`text-sm ${row.status === 'vencida' ? 'text-red-600 font-semibold' : ''}`}>{row.vencimento ? new Date(row.vencimento + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</span> },
+    { header: 'Vencimento', accessor: 'vencimento', render: (row) => <span className={`text-sm ${isContaVencida(row) ? 'text-red-600 font-semibold' : ''}`}>{row.vencimento ? new Date(row.vencimento + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</span> },
     { header: 'Descrição', accessor: 'descricao' },
     { header: 'Credor', accessor: 'credor', render: renderCredor },
     { header: 'Obra', accessor: 'obra', render: (row) => row.obras?.objeto || '—' },
@@ -961,6 +987,12 @@ export default function ContasPagarList() {
           )}
         </div>
       </div>
+
+      {vencidasPrioritarias.length > 0 && (
+        <div className="mb-1 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+          Existem <strong>{vencidasPrioritarias.length}</strong> conta(s) vencida(s) em aberto incluídas como prioridade neste filtro.
+        </div>
+      )}
 
       {/* Dashboard Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1137,7 +1169,7 @@ export default function ContasPagarList() {
                   {mobileFilteredContas.map((conta) => (
                     <div
                       key={conta.id}
-                      className="rounded-xl border border-border bg-card p-4 text-card-foreground shadow-sm space-y-3"
+                      className={`rounded-xl border ${isContaVencida(conta) ? 'border-red-300 dark:border-red-900/60' : 'border-border'} bg-card p-4 text-card-foreground shadow-sm space-y-3`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -1154,7 +1186,13 @@ export default function ContasPagarList() {
                         {renderStatus(conta)}
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 text-xs border-t border-b border-border py-2">
+                      {isContaVencida(conta) && (
+                        <p className="mt-2 -mb-1 text-xs font-medium text-red-700 dark:text-red-300">
+                          Prioridade de pagamento
+                        </p>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-2 text-xs border-t border-b border-border py-2 mt-2">
                         <div>
                           <span className="text-muted-foreground">Vencimento</span>
                           <p className="font-medium text-foreground">
